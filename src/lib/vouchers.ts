@@ -227,18 +227,22 @@ function randFrom(alphabet: string, len: number): string {
 
 export interface BulkOpts { format: BulkFormat; totalLen: number; onProgress?: (done: number, total: number) => void }
 
-export function bulkPlan(prefix: string, format: BulkFormat, totalLen: number): { ok: boolean; randLen: number; error: string } {
+/* Prefix is optional: empty = plain random code (e.g. 10 digits).
+ * Everything stays UPPERCASE (mixed alphabet is upper-only by construction). */
+export function bulkPlan(prefix: string, format: BulkFormat, totalLen: number): { ok: boolean; randLen: number; head: string; error: string } {
   const p = prefix.trim().toUpperCase();
-  if (!PREFIX_RE.test(p)) return { ok: false, randLen: 0, error: "Prefix: A–Z 0–9 -, 1–15 chars." };
+  if (p && !PREFIX_RE.test(p)) return { ok: false, randLen: 0, head: "", error: "Prefix: A–Z 0–9 -, 1–15 chars (or leave empty)." };
   if (!Number.isInteger(totalLen) || totalLen < 8 || totalLen > 20) {
-    return { ok: false, randLen: 0, error: "Total length: 8–20 chars (voucher limit)." };
+    return { ok: false, randLen: 0, head: "", error: "Total length: 8–20 chars (voucher limit)." };
   }
-  const randLen = totalLen - p.length - 1;
+  const randLen = p ? totalLen - p.length - 1 : totalLen;
   if (randLen < 4) {
-    return { ok: false, randLen: 0, error: `Too short: prefix takes ${p.length + 1}, need ≥ 4 random chars (total ≥ ${p.length + 5}).` };
+    return { ok: false, randLen: 0, head: "", error: p
+      ? `Too short: prefix takes ${p.length + 1}, need ≥ 4 random chars (total ≥ ${p.length + 5}).`
+      : "Too short: need ≥ 4 chars without a prefix." };
   }
   void format;
-  return { ok: true, randLen, error: "" };
+  return { ok: true, randLen, head: p ? `${p}-` : "", error: "" };
 }
 
 export interface BulkResult { created: string[]; requested: number; total_secs: number }
@@ -246,8 +250,7 @@ export interface BulkResult { created: string[]; requested: number; total_secs: 
 export async function bulkCreateVouchers(
   prefix: string, count: number, totalSecs: number, opts: BulkOpts,
 ): Promise<BulkResult> {
-  const p = prefix.trim().toUpperCase();
-  const plan = bulkPlan(p, opts.format, opts.totalLen);
+  const plan = bulkPlan(prefix, opts.format, opts.totalLen);
   if (!plan.ok) throw new DbError(plan.error);
   if (!Number.isInteger(count) || count < 1 || count > BULK_MAX) {
     throw new DbError(`Count must be 1–${BULK_MAX}.`);
@@ -261,10 +264,11 @@ export async function bulkCreateVouchers(
   }
   const db = supabase();
   const fresh = new Set<string>();
+  const mk = () => plan.head + randFrom(alphabet, plan.randLen);
   // Collision-safe top-up rounds against live codes (incl. other batches).
   for (let round = 0; round < 6 && fresh.size < count; round++) {
     const need = new Set<string>();
-    while (need.size < count - fresh.size) need.add(`${p}-${randFrom(alphabet, plan.randLen)}`);
+    while (need.size < count - fresh.size) need.add(mk());
     const cands = [...need].filter((c) => !fresh.has(c));
     if (!cands.length) break;
     const { data, error } = await db.from(T_VOUCHERS).select("code").in("code", cands);

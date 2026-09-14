@@ -154,7 +154,7 @@ export function CreateDialog({ onDone, onBatch }: { onDone: (code: string) => vo
 
   async function submitBulk() {
     const n = Number(count);
-    if (!prefix.trim() || busy) return;
+    if (busy) return;
     setBusy(true); setProgress("");
     try {
       const r = await bulkCreateVouchers(prefix, n, secsOf(), {
@@ -195,8 +195,8 @@ export function CreateDialog({ onDone, onBatch }: { onDone: (code: string) => vo
       ) : (
         <div className="space-y-3">
           <div>
-            <label className="mb-1 block text-[13px] font-semibold" htmlFor="bk-prefix">Prefix</label>
-            <Input id="bk-prefix" placeholder="GUEST" value={prefix} maxLength={15} autoComplete="off"
+            <label className="mb-1 block text-[13px] font-semibold" htmlFor="bk-prefix">Prefix (optional — empty = plain code)</label>
+            <Input id="bk-prefix" placeholder="GUEST or empty" value={prefix} maxLength={15} autoComplete="off"
               className="uppercase" onChange={(e) => setPrefix(e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, ""))} />
           </div>
           <div className="grid grid-cols-2 gap-2">
@@ -216,10 +216,10 @@ export function CreateDialog({ onDone, onBatch }: { onDone: (code: string) => vo
             </div>
           </div>
           <div className="rounded-md bg-secondary px-3 py-2 font-mono text-sm">
-            {(prefix.trim() ? prefix.trim().toUpperCase() : "PREFIX") + "-"
+            {(prefix.trim() ? prefix.trim().toUpperCase() + "-" : "")
               + (format === "numbers" ? "4" : "X").repeat(Math.max(0, plan.randLen))}
             <span className="ml-2 font-sans text-xs text-muted-foreground">
-              {plan.ok ? `${totalLen} chars · ${plan.randLen} random` : plan.error}
+              {plan.ok ? `${totalLen} chars · ${plan.randLen} random · UPPERCASE` : plan.error}
             </span>
           </div>
           <div>

@@ -11,7 +11,7 @@ import {
 import { Input } from "@/components/ui/input";
 import {
   BULK_MAX, bulkCreateVouchers, bulkPlan, createVoucher, deleteVoucher, fmtDur, fmtStamp,
-  listVouchers, liveRemaining, saveBatch, tierPrice,
+  listVouchers, liveRemaining, saveBatch, tierPrice, TIER_PRICES,
   type BulkFormat, type Voucher, type VoucherState,
 } from "@/lib/vouchers";
 import { DURATION_PRESETS, STATES } from "@/lib/supabase";
@@ -29,12 +29,13 @@ export default function Vouchers() {
     (["NEW", "ACTIVE", "PAUSED", "EXPIRED", "DISABLED"] as string[]).includes(initialState) ? initialState : "");
   const [loading, setLoading] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
+  const [ftier, setFtier] = useState<number | "custom" | "">("");
   const nav = useNavigate();
 
-  const load = useCallback(async (p: number, query: string, st: VoucherState | "") => {
+  const load = useCallback(async (p: number, query: string, st: VoucherState | "", tier: number | "custom" | "") => {
     setLoading(true);
     try {
-      const r = await listVouchers({ q: query, state: st, limit: PSZ, offset: p * PSZ });
+      const r = await listVouchers({ q: query, state: st, tier, limit: PSZ, offset: p * PSZ });
       setRows(r.rows); setTotal(r.total);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to load vouchers.");
@@ -42,9 +43,13 @@ export default function Vouchers() {
   }, []);
 
   const fstateRef = useRef(fstate);
-  useEffect(() => { void load(0, "", fstateRef.current); }, [load]);
+  useEffect(() => { void load(0, "", fstateRef.current, ""); }, [load]);
 
-  function search() { setPage(0); void load(0, q, fstate); }
+  function search() { setPage(0); void load(0, q, fstate, ftier); }
+  function tierName(v: Voucher): string {
+    const p = tierPrice(v.total_secs);
+    return p == null ? "Custom" : `₱${p}`;
+  }
 
   return (
     <div className="space-y-3">
@@ -53,9 +58,15 @@ export default function Vouchers() {
           onChange={(e) => setQ(e.target.value.toUpperCase())}
           onKeyDown={(e) => { if (e.key === "Enter") search(); }} />
         <select value={fstate} onChange={(e) => setFstate(e.target.value as VoucherState | "")}
-          className="h-10 max-w-[130px] rounded-md border border-input bg-background px-2 text-sm">
+          className="h-10 max-w-[110px] rounded-md border border-input bg-background px-2 text-sm">
           <option value="">All</option>
           {STATES.map((s) => <option key={s} value={s}>{s}</option>)}
+        </select>
+        <select value={ftier === "" ? "" : String(ftier)} onChange={(e) => setFtier(e.target.value === "" ? "" : e.target.value === "custom" ? "custom" : Number(e.target.value))}
+          className="h-10 max-w-[130px] rounded-md border border-input bg-background px-2 text-sm" title="Rate tier">
+          <option value="">All rates</option>
+          {Object.entries(TIER_PRICES).map(([s, p]) => <option key={s} value={s}>₱{p}</option>)}
+          <option value="custom">Custom</option>
         </select>
       </div>
       <div className="flex gap-2">
@@ -63,7 +74,7 @@ export default function Vouchers() {
         <Dialog open={createOpen} onOpenChange={setCreateOpen}>
           <DialogTrigger asChild><Button variant="outline" className="flex-1">+ Create</Button></DialogTrigger>
           <CreateDialog
-            onDone={(c) => { setCreateOpen(false); setQ(c); setFstate(""); setPage(0); void load(0, c, ""); }}
+            onDone={(c) => { setCreateOpen(false); setQ(c); setFstate(""); setPage(0); void load(0, c, "", ""); }}
             onBatch={() => { setCreateOpen(false); nav("/admin/vouchers/batch"); }} />
         </Dialog>
       </div>
@@ -80,13 +91,14 @@ export default function Vouchers() {
           <div className="hidden overflow-x-auto md:block">
             <table className="w-full text-[13px]">
               <thead className="sticky top-14 bg-card"><tr className="text-left text-xs text-muted-foreground">
-                <th className="py-2">Code</th><th>Status</th><th>Total</th><th>Used</th><th>Left</th><th>MAC</th><th>Last IP</th><th>Last auth</th>
+                <th className="py-2">Code</th><th>Status</th><th>Rate</th><th>Total</th><th>Used</th><th>Left</th><th>MAC</th><th>Last IP</th><th>Last auth</th>
               </tr></thead>
               <tbody>
                 {rows.map((v) => (
                   <tr key={v.code} className="border-t">
                     <td className="py-2 font-bold"><Link className="text-primary" to={`/admin/vouchers/${encodeURIComponent(v.code)}`}>{v.code}</Link></td>
                     <td><StateBadge state={v.state} /></td>
+                    <td className="font-semibold">{tierName(v)}</td>
                     <td>{fmtDur(v.total_secs)}</td><td>{fmtDur(v.used_secs)}</td>
                     <td className="font-semibold">{fmtDur(liveRemaining(v))}</td>
                     <td>{v.bound_mac ?? "—"}</td><td>{v.last_ip ?? "—"}</td>
@@ -103,7 +115,7 @@ export default function Vouchers() {
                 <Card><CardContent className="flex items-center justify-between pt-4">
                   <span><span className="font-bold">{v.code}</span>
                     <span className="block text-[11px] text-muted-foreground">
-                      {fmtDur(liveRemaining(v))} left · {v.bound_mac ?? "unbound"}
+                      {tierName(v)} · {fmtDur(liveRemaining(v))} left · {v.bound_mac ?? "unbound"}
                     </span></span>
                   <StateBadge state={v.state} />
                 </CardContent></Card>
@@ -112,10 +124,10 @@ export default function Vouchers() {
           </div>
           <div className="flex items-center gap-2">
             <Button variant="outline" disabled={page === 0}
-              onClick={() => { const p = page - 1; setPage(p); void load(p, q, fstate); }}>‹ Prev</Button>
+              onClick={() => { const p = page - 1; setPage(p); void load(p, q, fstate, ftier); }}>‹ Prev</Button>
             <span className="text-xs text-muted-foreground">Page {page + 1} of {Math.max(1, Math.ceil(total / PSZ))} ({total})</span>
             <Button variant="outline" disabled={(page + 1) * PSZ >= total}
-              onClick={() => { const p = page + 1; setPage(p); void load(p, q, fstate); }}>Next ›</Button>
+              onClick={() => { const p = page + 1; setPage(p); void load(p, q, fstate, ftier); }}>Next ›</Button>
           </div>
         </>
       )}

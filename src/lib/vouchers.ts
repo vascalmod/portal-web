@@ -124,11 +124,16 @@ export async function countByState(state: VoucherState): Promise<number> {
   return count ?? 0;
 }
 
-export interface VoucherQuery { q?: string; state?: VoucherState | ""; limit?: number; offset?: number }
+export interface VoucherQuery { q?: string; state?: VoucherState | ""; tier?: number | "custom" | ""; limit?: number; offset?: number }
 
-export async function listVouchers({ q = "", state = "", limit = 25, offset = 0 }: VoucherQuery = {}): Promise<{ total: number; rows: Voucher[] }> {
+export async function listVouchers({ q = "", state = "", tier = "", limit = 25, offset = 0 }: VoucherQuery = {}): Promise<{ total: number; rows: Voucher[] }> {
   let query = supabase().from(T_VOUCHERS).select(VOUCHER_COLS, { count: "exact" });
   if (state) query = query.eq("state", state);
+  if (tier === "custom") {
+    query = query.not("total_secs", "in", `(${Object.keys(TIER_PRICES).join(",")})`);
+  } else if (tier !== "") {
+    query = query.eq("total_secs", tier);
+  }
   const needle = q.trim().toUpperCase().replace(/[%_]/g, "");
   if (needle) query = query.ilike("code", `%${needle}%`);
   const { data, count, error } = await query.order("created_at", { ascending: false }).range(offset, offset + limit - 1);
@@ -242,14 +247,14 @@ export interface BulkOpts { format: BulkFormat; totalLen: number; onProgress?: (
 export function bulkPlan(prefix: string, format: BulkFormat, totalLen: number): { ok: boolean; randLen: number; head: string; error: string } {
   const p = prefix.trim().toUpperCase();
   if (p && !PREFIX_RE.test(p)) return { ok: false, randLen: 0, head: "", error: "Prefix: A–Z 0–9 -, 1–15 chars (or leave empty)." };
-  if (!Number.isInteger(totalLen) || totalLen < 8 || totalLen > 20) {
-    return { ok: false, randLen: 0, head: "", error: "Total length: 8–20 chars (voucher limit)." };
+  if (!Number.isInteger(totalLen) || totalLen < 4 || totalLen > 10) {
+    return { ok: false, randLen: 0, head: "", error: "Total length: 4–10 chars." };
   }
   const randLen = p ? totalLen - p.length - 1 : totalLen;
-  if (randLen < 4) {
+  if (randLen < 2) {
     return { ok: false, randLen: 0, head: "", error: p
-      ? `Too short: prefix takes ${p.length + 1}, need ≥ 4 random chars (total ≥ ${p.length + 5}).`
-      : "Too short: need ≥ 4 chars without a prefix." };
+      ? `Too short: prefix takes ${p.length + 1}, need ≥ 2 random chars (total ≥ ${p.length + 3}).`
+      : "Too short: need ≥ 2 chars without a prefix." };
   }
   void format;
   return { ok: true, randLen, head: p ? `${p}-` : "", error: "" };

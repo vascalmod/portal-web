@@ -209,45 +209,69 @@ export async function releaseBinding(code: string): Promise<void> {
 
 /* ---------- bulk generation + printable slips ---------- */
 
-// Unambiguous alphabet (no 0/O, 1/I/L) so printed slips can't be misread.
-const BULK_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
-const BULK_SUFFIX_LEN = 4;
+// Unambiguous alphabets (no 0/O, 1/I/L) so printed slips can't be misread.
+// Numbers-only uses 2–9 (no leading-zero or glyph issues at any length).
+const BULK_MIXED = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+const BULK_DIGITS = "23456789";
 export const BULK_MAX = 200;
-const PREFIX_RE = /^[A-Z0-9-]{2,15}$/;
+export type BulkFormat = "mixed" | "numbers";
+const PREFIX_RE = /^[A-Z0-9-]{1,15}$/;
 
-function randSuffix(): string {
-  const buf = new Uint32Array(BULK_SUFFIX_LEN);
+function randFrom(alphabet: string, len: number): string {
+  const buf = new Uint32Array(len);
   crypto.getRandomValues(buf);
   let s = "";
-  for (let i = 0; i < BULK_SUFFIX_LEN; i++) s += BULK_ALPHABET[buf[i] % BULK_ALPHABET.length];
+  for (let i = 0; i < len; i++) s += alphabet[buf[i] % alphabet.length];
   return s;
+}
+
+export interface BulkOpts { format: BulkFormat; totalLen: number; onProgress?: (done: number, total: number) => void }
+
+export function bulkPlan(prefix: string, format: BulkFormat, totalLen: number): { ok: boolean; randLen: number; error: string } {
+  const p = prefix.trim().toUpperCase();
+  if (!PREFIX_RE.test(p)) return { ok: false, randLen: 0, error: "Prefix: A–Z 0–9 -, 1–15 chars." };
+  if (!Number.isInteger(totalLen) || totalLen < 8 || totalLen > 20) {
+    return { ok: false, randLen: 0, error: "Total length: 8–20 chars (voucher limit)." };
+  }
+  const randLen = totalLen - p.length - 1;
+  if (randLen < 4) {
+    return { ok: false, randLen: 0, error: `Too short: prefix takes ${p.length + 1}, need ≥ 4 random chars (total ≥ ${p.length + 5}).` };
+  }
+  void format;
+  return { ok: true, randLen, error: "" };
 }
 
 export interface BulkResult { created: string[]; requested: number; total_secs: number }
 
 export async function bulkCreateVouchers(
-  prefix: string, count: number, totalSecs: number,
-  onProgress?: (done: number, total: number) => void,
+  prefix: string, count: number, totalSecs: number, opts: BulkOpts,
 ): Promise<BulkResult> {
   const p = prefix.trim().toUpperCase();
-  if (!PREFIX_RE.test(p)) throw new DbError("Prefix: A–Z 0–9 -, 2–15 chars (code stays ≤ 20).");
+  const plan = bulkPlan(p, opts.format, opts.totalLen);
+  if (!plan.ok) throw new DbError(plan.error);
   if (!Number.isInteger(count) || count < 1 || count > BULK_MAX) {
     throw new DbError(`Count must be 1–${BULK_MAX}.`);
   }
   if (!Number.isInteger(totalSecs) || totalSecs <= 0) throw new DbError("Pick a duration.");
+  const alphabet = opts.format === "numbers" ? BULK_DIGITS : BULK_MIXED;
+  const space = Math.pow(alphabet.length, plan.randLen);
+  if (space < count * 10) {
+    throw new DbError(
+      `Too crowded: ${space.toLocaleString()} possible codes for ${count} vouchers. Lengthen the code or shorten the prefix.`);
+  }
   const db = supabase();
   const fresh = new Set<string>();
   // Collision-safe top-up rounds against live codes (incl. other batches).
   for (let round = 0; round < 6 && fresh.size < count; round++) {
     const need = new Set<string>();
-    while (need.size < count - fresh.size) need.add(`${p}-${randSuffix()}`);
+    while (need.size < count - fresh.size) need.add(`${p}-${randFrom(alphabet, plan.randLen)}`);
     const cands = [...need].filter((c) => !fresh.has(c));
     if (!cands.length) break;
     const { data, error } = await db.from(T_VOUCHERS).select("code").in("code", cands);
     if (error) err(error, "Failed to check existing codes.");
     const taken = new Set((data ?? []).map((r) => String(r.code)));
     for (const c of cands) if (!taken.has(c)) fresh.add(c);
-    onProgress?.(fresh.size, count);
+    opts.onProgress?.(fresh.size, count);
   }
   const codes = [...fresh];
   if (!codes.length) throw new DbError("Could not mint unique codes — try another prefix.");
@@ -258,7 +282,7 @@ export async function bulkCreateVouchers(
       first_seen: null, last_auth: null, resume_ts: null,
     })));
   if (error) err(error, "Failed to insert batch.");
-  onProgress?.(codes.length, count);
+  opts.onProgress?.(codes.length, count);
   return { created: codes.sort(), requested: count, total_secs: totalSecs };
 }
 

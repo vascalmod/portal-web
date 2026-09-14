@@ -10,9 +10,9 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
-  BULK_MAX, bulkCreateVouchers, createVoucher, deleteVoucher, fmtDur, fmtStamp,
+  BULK_MAX, bulkCreateVouchers, bulkPlan, createVoucher, deleteVoucher, fmtDur, fmtStamp,
   listVouchers, liveRemaining, saveBatch, tierPrice,
-  type Voucher, type VoucherState,
+  type BulkFormat, type Voucher, type VoucherState,
 } from "@/lib/vouchers";
 import { DURATION_PRESETS, STATES } from "@/lib/supabase";
 
@@ -130,8 +130,11 @@ export function CreateDialog({ onDone, onBatch }: { onDone: (code: string) => vo
   const [custom, setCustom] = useState("");
   const [prefix, setPrefix] = useState("");
   const [count, setCount] = useState("50");
+  const [format, setFormat] = useState<BulkFormat>("mixed");
+  const [totalLen, setTotalLen] = useState("12");
   const [progress, setProgress] = useState("");
   const [busy, setBusy] = useState(false);
+  const plan = bulkPlan(prefix || "PREFIX", format, Number(totalLen));
 
   function secsOf(): number {
     return preset === "custom" ? Number(custom) : Number(preset);
@@ -154,7 +157,10 @@ export function CreateDialog({ onDone, onBatch }: { onDone: (code: string) => vo
     if (!prefix.trim() || busy) return;
     setBusy(true); setProgress("");
     try {
-      const r = await bulkCreateVouchers(prefix, n, secsOf(), (d, t) => setProgress(`${d}/${t}`));
+      const r = await bulkCreateVouchers(prefix, n, secsOf(), {
+        format, totalLen: Number(totalLen),
+        onProgress: (d, t) => setProgress(`${d}/${t}`),
+      });
       saveBatch({
         prefix: prefix.trim().toUpperCase(), total_secs: r.total_secs,
         price_php: tierPrice(r.total_secs), codes: r.created,
@@ -189,9 +195,32 @@ export function CreateDialog({ onDone, onBatch }: { onDone: (code: string) => vo
       ) : (
         <div className="space-y-3">
           <div>
-            <label className="mb-1 block text-[13px] font-semibold" htmlFor="bk-prefix">Prefix (codes look like PREFIX-XXXX)</label>
+            <label className="mb-1 block text-[13px] font-semibold" htmlFor="bk-prefix">Prefix</label>
             <Input id="bk-prefix" placeholder="GUEST" value={prefix} maxLength={15} autoComplete="off"
               className="uppercase" onChange={(e) => setPrefix(e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, ""))} />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <span className="mb-1 block text-[13px] font-semibold">Code style</span>
+              <div className="flex gap-1.5">
+                {(["mixed", "numbers"] as const).map((f) => (
+                  <Button key={f} variant={format === f ? "default" : "outline"} className="flex-1 px-1 text-xs"
+                    onClick={() => setFormat(f)}>{f === "mixed" ? "Letters+123" : "123 only"}</Button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="mb-1 block text-[13px] font-semibold" htmlFor="bk-len">Total length</label>
+              <Input id="bk-len" inputMode="numeric" value={totalLen}
+                onChange={(e) => setTotalLen(e.target.value.replace(/[^0-9]/g, "").slice(0, 2))} />
+            </div>
+          </div>
+          <div className="rounded-md bg-secondary px-3 py-2 font-mono text-sm">
+            {(prefix.trim() ? prefix.trim().toUpperCase() : "PREFIX") + "-"
+              + (format === "numbers" ? "4" : "X").repeat(Math.max(0, plan.randLen))}
+            <span className="ml-2 font-sans text-xs text-muted-foreground">
+              {plan.ok ? `${totalLen} chars · ${plan.randLen} random` : plan.error}
+            </span>
           </div>
           <div>
             <label className="mb-1 block text-[13px] font-semibold" htmlFor="bk-count">Quantity (1–{BULK_MAX})</label>
@@ -199,7 +228,7 @@ export function CreateDialog({ onDone, onBatch }: { onDone: (code: string) => vo
               onChange={(e) => setCount(e.target.value.replace(/[^0-9]/g, "").slice(0, 3))} />
           </div>
           <DurationPick preset={preset} setPreset={setPreset} custom={custom} setCustom={setCustom} />
-          <p className="text-xs text-muted-foreground">Suffixes avoid 0/O/1/I/L so slips can't be misread. Duplicates are skipped automatically.</p>
+          <p className="text-xs text-muted-foreground">Characters avoid 0/O/1/I/L so slips can't be misread. Duplicates are skipped automatically.</p>
         </div>
       )}
       <DialogFooter>

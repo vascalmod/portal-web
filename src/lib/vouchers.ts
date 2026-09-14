@@ -206,3 +206,92 @@ export async function releaseBinding(code: string): Promise<void> {
     .update({ bound_mac: null, last_ip: null, last_token: null }).eq("code", c);
   if (error) err(error, "Failed to release binding.");
 }
+
+/* ---------- bulk generation + printable slips ---------- */
+
+// Unambiguous alphabet (no 0/O, 1/I/L) so printed slips can't be misread.
+const BULK_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+const BULK_SUFFIX_LEN = 4;
+export const BULK_MAX = 200;
+const PREFIX_RE = /^[A-Z0-9-]{2,15}$/;
+
+function randSuffix(): string {
+  const buf = new Uint32Array(BULK_SUFFIX_LEN);
+  crypto.getRandomValues(buf);
+  let s = "";
+  for (let i = 0; i < BULK_SUFFIX_LEN; i++) s += BULK_ALPHABET[buf[i] % BULK_ALPHABET.length];
+  return s;
+}
+
+export interface BulkResult { created: string[]; requested: number; total_secs: number }
+
+export async function bulkCreateVouchers(
+  prefix: string, count: number, totalSecs: number,
+  onProgress?: (done: number, total: number) => void,
+): Promise<BulkResult> {
+  const p = prefix.trim().toUpperCase();
+  if (!PREFIX_RE.test(p)) throw new DbError("Prefix: A–Z 0–9 -, 2–15 chars (code stays ≤ 20).");
+  if (!Number.isInteger(count) || count < 1 || count > BULK_MAX) {
+    throw new DbError(`Count must be 1–${BULK_MAX}.`);
+  }
+  if (!Number.isInteger(totalSecs) || totalSecs <= 0) throw new DbError("Pick a duration.");
+  const db = supabase();
+  const fresh = new Set<string>();
+  // Collision-safe top-up rounds against live codes (incl. other batches).
+  for (let round = 0; round < 6 && fresh.size < count; round++) {
+    const need = new Set<string>();
+    while (need.size < count - fresh.size) need.add(`${p}-${randSuffix()}`);
+    const cands = [...need].filter((c) => !fresh.has(c));
+    if (!cands.length) break;
+    const { data, error } = await db.from(T_VOUCHERS).select("code").in("code", cands);
+    if (error) err(error, "Failed to check existing codes.");
+    const taken = new Set((data ?? []).map((r) => String(r.code)));
+    for (const c of cands) if (!taken.has(c)) fresh.add(c);
+    onProgress?.(fresh.size, count);
+  }
+  const codes = [...fresh];
+  if (!codes.length) throw new DbError("Could not mint unique codes — try another prefix.");
+  const { error } = await db.from(T_VOUCHERS).insert(
+    codes.map((code) => ({
+      code, total_secs: totalSecs, used_secs: 0, state: "NEW",
+      bound_mac: null, last_ip: null, last_token: null,
+      first_seen: null, last_auth: null, resume_ts: null,
+    })));
+  if (error) err(error, "Failed to insert batch.");
+  onProgress?.(codes.length, count);
+  return { created: codes.sort(), requested: count, total_secs: totalSecs };
+}
+
+export interface SlipBatch {
+  prefix: string; total_secs: number; price_php: number | null;
+  codes: string[]; created_at: string;
+}
+
+const BATCH_KEY = "voucher_slip_batch";
+
+export function saveBatch(b: SlipBatch): void {
+  try { sessionStorage.setItem(BATCH_KEY, JSON.stringify(b)); } catch { /* private mode */ }
+}
+
+export function loadBatch(): SlipBatch | null {
+  try {
+    const raw = sessionStorage.getItem(BATCH_KEY);
+    if (!raw) return null;
+    const b = JSON.parse(raw) as SlipBatch;
+    return Array.isArray(b.codes) && b.codes.length ? b : null;
+  } catch { return null; }
+}
+
+export function batchToCSV(b: SlipBatch): string {
+  const lines = ["code,price_php,total_secs,state"];
+  for (const c of b.codes) lines.push([c, b.price_php ?? "", b.total_secs, "NEW"].join(","));
+  return lines.join("\n") + "\n";
+}
+
+export function downloadFile(name: string, text: string, type: string): void {
+  const url = URL.createObjectURL(new Blob([text], { type }));
+  const a = document.createElement("a");
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}

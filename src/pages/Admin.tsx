@@ -1,5 +1,6 @@
 import { Route, Routes } from "react-router-dom";
 import AdminLayout from "./admin/AdminLayout";
+import BatchSlips from "./admin/BatchSlips";
 import Dashboard from "./admin/Dashboard";
 import Logs from "./admin/Logs";
 import VoucherDetail from "./admin/VoucherDetail";
@@ -13,6 +14,7 @@ export default function Admin() {
       <Route element={<AdminLayout />}>
         <Route index element={<Dashboard />} />
         <Route path="vouchers" element={<Vouchers />} />
+        <Route path="vouchers/batch" element={<BatchSlips />} />
         <Route path="vouchers/:code" element={<VoucherDetail />} />
         <Route path="logs" element={<Logs />} />
       </Route>

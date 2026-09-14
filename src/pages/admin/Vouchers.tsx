@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { StateBadge } from "@/components/StateBadge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -10,7 +10,8 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
-  createVoucher, deleteVoucher, fmtDur, fmtStamp, listVouchers, liveRemaining,
+  BULK_MAX, bulkCreateVouchers, createVoucher, deleteVoucher, fmtDur, fmtStamp,
+  listVouchers, liveRemaining, saveBatch, tierPrice,
   type Voucher, type VoucherState,
 } from "@/lib/vouchers";
 import { DURATION_PRESETS, STATES } from "@/lib/supabase";
@@ -28,6 +29,7 @@ export default function Vouchers() {
     (["NEW", "ACTIVE", "PAUSED", "EXPIRED", "DISABLED"] as string[]).includes(initialState) ? initialState : "");
   const [loading, setLoading] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
+  const nav = useNavigate();
 
   const load = useCallback(async (p: number, query: string, st: VoucherState | "") => {
     setLoading(true);
@@ -60,7 +62,9 @@ export default function Vouchers() {
         <Button className="flex-1" onClick={search}>Search</Button>
         <Dialog open={createOpen} onOpenChange={setCreateOpen}>
           <DialogTrigger asChild><Button variant="outline" className="flex-1">+ Create</Button></DialogTrigger>
-          <CreateDialog onDone={(c) => { setCreateOpen(false); setQ(c); setFstate(""); setPage(0); void load(0, c, ""); }} />
+          <CreateDialog
+            onDone={(c) => { setCreateOpen(false); setQ(c); setFstate(""); setPage(0); void load(0, c, ""); }}
+            onBatch={() => { setCreateOpen(false); nav("/admin/vouchers/batch"); }} />
         </Dialog>
       </div>
 
@@ -119,18 +123,25 @@ export default function Vouchers() {
   );
 }
 
-export function CreateDialog({ onDone }: { onDone: (code: string) => void }) {
+export function CreateDialog({ onDone, onBatch }: { onDone: (code: string) => void; onBatch: () => void }) {
+  const [mode, setMode] = useState<"single" | "bulk">("single");
   const [code, setCode] = useState("");
   const [preset, setPreset] = useState<string>(String(DURATION_PRESETS[0].secs));
   const [custom, setCustom] = useState("");
+  const [prefix, setPrefix] = useState("");
+  const [count, setCount] = useState("50");
+  const [progress, setProgress] = useState("");
   const [busy, setBusy] = useState(false);
 
-  async function submit() {
-    const secs = preset === "custom" ? Number(custom) : Number(preset);
+  function secsOf(): number {
+    return preset === "custom" ? Number(custom) : Number(preset);
+  }
+
+  async function submitSingle() {
     if (!code.trim() || busy) return;
     setBusy(true);
     try {
-      const v = await createVoucher(code, secs);
+      const v = await createVoucher(code, secsOf());
       toast.success(`Created ${v.code} (${fmtDur(v.total_secs)}).`);
       onDone(v.code);
     } catch (e) {
@@ -138,32 +149,91 @@ export function CreateDialog({ onDone }: { onDone: (code: string) => void }) {
     } finally { setBusy(false); }
   }
 
+  async function submitBulk() {
+    const n = Number(count);
+    if (!prefix.trim() || busy) return;
+    setBusy(true); setProgress("");
+    try {
+      const r = await bulkCreateVouchers(prefix, n, secsOf(), (d, t) => setProgress(`${d}/${t}`));
+      saveBatch({
+        prefix: prefix.trim().toUpperCase(), total_secs: r.total_secs,
+        price_php: tierPrice(r.total_secs), codes: r.created,
+        created_at: new Date().toISOString(),
+      });
+      const short = r.created.length < r.requested ? ` (${r.requested - r.created.length} skipped as duplicates)` : "";
+      toast.success(`Created ${r.created.length} vouchers${short}.`);
+      onBatch();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Bulk create failed.");
+    } finally { setBusy(false); setProgress(""); }
+  }
+
   return (
     <DialogContent>
       <DialogHeader>
-        <DialogTitle>Create voucher</DialogTitle>
+        <DialogTitle>Create vouchers</DialogTitle>
         <DialogDescription>State NEW, zero usage, unbound. Created timestamp is automatic.</DialogDescription>
       </DialogHeader>
-      <div className="space-y-3">
-        <Input placeholder="GUEST-001" value={code} maxLength={20} autoComplete="off"
-          className="uppercase" onChange={(e) => setCode(e.target.value.toUpperCase())} />
-        <select value={preset} onChange={(e) => setPreset(e.target.value)}
-          className="h-10 w-full rounded-md border border-input bg-background px-2 text-sm">
-          {DURATION_PRESETS.map((d, i) => (
-            <option key={i} value={d.secs == null ? "custom" : String(d.secs)}>{d.label}</option>
-          ))}
-        </select>
-        {preset === "custom" && (
-          <Input placeholder="Seconds, e.g. 7200" inputMode="numeric" value={custom}
-            onChange={(e) => setCustom(e.target.value.replace(/[^0-9]/g, ""))} />
-        )}
+      <div className="flex gap-1.5">
+        {(["single", "bulk"] as const).map((m) => (
+          <Button key={m} variant={mode === m ? "default" : "outline"} className="flex-1"
+            onClick={() => setMode(m)}>{m === "single" ? "Single" : `Bulk (up to ${BULK_MAX})`}</Button>
+        ))}
       </div>
+      {mode === "single" ? (
+        <div className="space-y-3">
+          <Input placeholder="GUEST-001" value={code} maxLength={20} autoComplete="off"
+            className="uppercase" onChange={(e) => setCode(e.target.value.toUpperCase())} />
+          <DurationPick preset={preset} setPreset={setPreset} custom={custom} setCustom={setCustom} />
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <div>
+            <label className="mb-1 block text-[13px] font-semibold" htmlFor="bk-prefix">Prefix (codes look like PREFIX-XXXX)</label>
+            <Input id="bk-prefix" placeholder="GUEST" value={prefix} maxLength={15} autoComplete="off"
+              className="uppercase" onChange={(e) => setPrefix(e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, ""))} />
+          </div>
+          <div>
+            <label className="mb-1 block text-[13px] font-semibold" htmlFor="bk-count">Quantity (1–{BULK_MAX})</label>
+            <Input id="bk-count" inputMode="numeric" value={count}
+              onChange={(e) => setCount(e.target.value.replace(/[^0-9]/g, "").slice(0, 3))} />
+          </div>
+          <DurationPick preset={preset} setPreset={setPreset} custom={custom} setCustom={setCustom} />
+          <p className="text-xs text-muted-foreground">Suffixes avoid 0/O/1/I/L so slips can't be misread. Duplicates are skipped automatically.</p>
+        </div>
+      )}
       <DialogFooter>
-        <Button className="w-full sm:w-auto" disabled={busy} onClick={() => void submit()}>
-          {busy ? "Creating…" : "Create"}
-        </Button>
+        {progress && <span className="mr-auto self-center text-xs text-muted-foreground">{progress}</span>}
+        {mode === "single" ? (
+          <Button className="w-full sm:w-auto" disabled={busy} onClick={() => void submitSingle()}>
+            {busy ? "Creating…" : "Create"}
+          </Button>
+        ) : (
+          <Button className="w-full sm:w-auto" disabled={busy} onClick={() => void submitBulk()}>
+            {busy ? "Generating…" : "Generate batch"}
+          </Button>
+        )}
       </DialogFooter>
     </DialogContent>
+  );
+}
+
+function DurationPick({ preset, setPreset, custom, setCustom }: {
+  preset: string; setPreset: (v: string) => void; custom: string; setCustom: (v: string) => void;
+}) {
+  return (
+    <>
+      <select value={preset} onChange={(e) => setPreset(e.target.value)}
+        className="h-10 w-full rounded-md border border-input bg-background px-2 text-sm">
+        {DURATION_PRESETS.map((d, i) => (
+          <option key={i} value={d.secs == null ? "custom" : String(d.secs)}>{d.label}</option>
+        ))}
+      </select>
+      {preset === "custom" && (
+        <Input placeholder="Seconds, e.g. 7200" inputMode="numeric" value={custom}
+          onChange={(e) => setCustom(e.target.value.replace(/[^0-9]/g, ""))} />
+      )}
+    </>
   );
 }
 

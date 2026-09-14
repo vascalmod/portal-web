@@ -49,3 +49,26 @@
     font-family: Arial, Helvetica, sans-serif;
   }
 }
+
+/* Printable voucher slips: chrome off, cut guides kept, no split slips. */
+@media print {
+  header, nav, button, .no-print {
+    display: none !important;
+  }
+  body {
+    background: #fff;
+  }
+  main {
+    max-width: none;
+    padding: 0;
+  }
+  .slips-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+  }
+  .slip {
+    break-inside: avoid;
+    border-color: #999;
+  }
+}

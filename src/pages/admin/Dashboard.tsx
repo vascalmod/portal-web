@@ -9,7 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import {
   countByState, fmtDur, fmtPeso, fmtStamp, listEvents, liveRemaining, recentSales,
-  recentVouchers, salesStats,
+  recentVouchers, salesStats, tierLabel,
   type TierStat, type Voucher, type VoucherEvent,
 } from "@/lib/vouchers";
 import { STATES } from "@/lib/supabase";
@@ -81,7 +81,7 @@ export default function Dashboard() {
               <tbody>
                 {(profit?.tiers ?? []).map((t) => (
                   <tr key={t.total_secs} className="border-t">
-                    <td className="py-2">{fmtDur(t.total_secs)}</td>
+                    <td className="py-2">{tierLabel(t.total_secs)}</td>
                     <td>{t.price_php == null ? "custom" : fmtPeso(t.price_php)}</td>
                     <td>{t.sold}</td><td>{t.unsold}</td>
                     <td className="font-semibold">{fmtPeso(t.revenue_php)}</td>

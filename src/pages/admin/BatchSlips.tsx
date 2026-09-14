@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { batchToCSV, downloadFile, fmtDur, fmtPeso, loadBatch } from "@/lib/vouchers";
+import { batchToCSV, downloadFile, fmtPeso, loadBatch, tierLabel } from "@/lib/vouchers";
 
 export default function BatchSlips() {
   const [batch] = useState(loadBatch);
@@ -29,7 +29,7 @@ export default function BatchSlips() {
       <div className="no-print flex flex-wrap items-center gap-2">
         <Link to="/admin/vouchers"><Button size="sm" variant="ghost">‹ Vouchers</Button></Link>
         <span className="text-sm text-muted-foreground">
-          {batch.codes.length} codes · {batch.prefix} · {fmtDur(batch.total_secs)}
+          {batch.codes.length} codes · {batch.prefix} · {tierLabel(batch.total_secs)}
           {batch.price_php != null ? ` · ${fmtPeso(batch.price_php)}` : ""}
         </span>
         <span className="flex-1" />
@@ -44,7 +44,7 @@ export default function BatchSlips() {
             <div className="text-xs font-bold tracking-widest text-muted-foreground">WI-FI E-VOUCHER</div>
             <div className="my-2 font-mono text-2xl font-bold tracking-wider">{c}</div>
             <div className="text-sm font-semibold text-primary">
-              {batch.price_php != null ? `${fmtPeso(batch.price_php)} · ` : ""}{fmtDur(batch.total_secs)} · 10 Mbps
+              {batch.price_php != null ? `${fmtPeso(batch.price_php)} · ` : ""}{tierLabel(batch.total_secs)} · 10 Mbps
             </div>
             <ol className="mx-auto mt-2 max-w-[240px] space-y-0.5 text-left text-[11px] text-muted-foreground">
               <li>1. Join the WiFi network on your phone.</li>

@@ -67,9 +67,19 @@ export function fmtStamp(iso: string | null): string {
  * Sold = bound_mac IS NOT NULL (first claim binds = sale). Non-tier totals
  * are custom: tracked, priced unknown. */
 export const TIER_PRICES: Record<number, number> = {
-  28800: 5, 57600: 10, 129600: 20, 345600: 50,
-  777600: 100, 1641600: 200, 2592000: 500,
+  28800: 5, 64800: 10, 144000: 20, 230400: 30, 345600: 40,
+  432000: 50, 720000: 80, 950400: 100, 1152000: 120,
 };
+
+export const TIER_LABELS: Record<number, string> = {
+  28800: "8 Hours", 64800: "18 Hours", 144000: "1 Day 16 Hours",
+  230400: "2 Days 16 Hours", 345600: "4 Days", 432000: "5 Days",
+  720000: "8 Days 8 Hours", 950400: "11 Days", 1152000: "13 Days 8 Hours",
+};
+
+export function tierLabel(totalSecs: number): string {
+  return TIER_LABELS[totalSecs] ?? fmtDur(totalSecs);
+}
 
 export function tierPrice(totalSecs: number): number | null {
   return TIER_PRICES[totalSecs] ?? null;

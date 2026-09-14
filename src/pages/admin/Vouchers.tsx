@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { StateBadge } from "@/components/StateBadge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -21,7 +22,10 @@ export default function Vouchers() {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(0);
   const [q, setQ] = useState("");
-  const [fstate, setFstate] = useState<VoucherState | "">("");
+  const [params] = useSearchParams();
+  const initialState = ((params.get("state") ?? "") as VoucherState | "");
+  const [fstate, setFstate] = useState<VoucherState | "">(
+    (["NEW", "ACTIVE", "PAUSED", "EXPIRED", "DISABLED"] as string[]).includes(initialState) ? initialState : "");
   const [loading, setLoading] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
 
@@ -35,7 +39,8 @@ export default function Vouchers() {
     } finally { setLoading(false); }
   }, []);
 
-  useEffect(() => { void load(0, "", ""); }, [load]);
+  const fstateRef = useRef(fstate);
+  useEffect(() => { void load(0, "", fstateRef.current); }, [load]);
 
   function search() { setPage(0); void load(0, q, fstate); }
 
@@ -60,7 +65,9 @@ export default function Vouchers() {
       </div>
 
       {loading ? (
-        <p className="py-8 text-center text-sm text-muted-foreground">Loading vouchers…</p>
+        <div className="space-y-2">
+          {[0, 1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-16" />)}
+        </div>
       ) : rows.length === 0 ? (
         <Card><CardContent className="py-8 text-center text-sm text-muted-foreground">No vouchers found.</CardContent></Card>
       ) : (
@@ -68,7 +75,7 @@ export default function Vouchers() {
           {/* desktop table */}
           <div className="hidden overflow-x-auto md:block">
             <table className="w-full text-[13px]">
-              <thead><tr className="text-left text-xs text-muted-foreground">
+              <thead className="sticky top-14 bg-card"><tr className="text-left text-xs text-muted-foreground">
                 <th className="py-2">Code</th><th>Status</th><th>Total</th><th>Used</th><th>Left</th><th>MAC</th><th>Last IP</th><th>Last auth</th>
               </tr></thead>
               <tbody>

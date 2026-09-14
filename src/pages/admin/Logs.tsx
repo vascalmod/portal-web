@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { fmtDur, fmtStamp, listEvents, type VoucherEvent } from "@/lib/vouchers";
 import { supabase, T_EVENTS } from "@/lib/supabase";
@@ -62,7 +63,9 @@ export default function Logs() {
       <Button className="w-full" onClick={search}>Search logs</Button>
 
       {loading ? (
-        <p className="py-8 text-center text-sm text-muted-foreground">Loading logs…</p>
+        <div className="space-y-2">
+          {[0, 1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-14" />)}
+        </div>
       ) : rows.length === 0 ? (
         <Card><CardContent className="py-8 text-center text-sm text-muted-foreground">No log entries found.</CardContent></Card>
       ) : (
@@ -70,7 +73,7 @@ export default function Logs() {
           {/* desktop table */}
           <div className="hidden overflow-x-auto md:block">
             <table className="w-full text-[13px]">
-              <thead><tr className="text-left text-xs text-muted-foreground">
+              <thead className="sticky top-14 bg-card"><tr className="text-left text-xs text-muted-foreground">
                 <th className="py-2">ID</th><th>Code</th><th>MAC</th><th>IP</th><th>Decision</th><th>Reason</th><th>Left</th><th>At</th>
               </tr></thead>
               <tbody>

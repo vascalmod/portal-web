@@ -53,10 +53,56 @@ export function fmtDur(totalSecs: number): string {
   return `${sec}s`;
 }
 
+export function fmtPeso(n: number): string {
+  return "₱" + n.toLocaleString("en-PH");
+}
+
 export function fmtStamp(iso: string | null): string {
   if (!iso) return "—";
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? String(iso) : d.toLocaleString();
+}
+
+/* Canonical price tiers (mirror the portal price card + backend RATE_TIERS).
+ * Sold = bound_mac IS NOT NULL (first claim binds = sale). Non-tier totals
+ * are custom: tracked, priced unknown. */
+export const TIER_PRICES: Record<number, number> = {
+  28800: 5, 57600: 10, 129600: 20, 345600: 50,
+  777600: 100, 1641600: 200, 2592000: 500,
+};
+
+export function tierPrice(totalSecs: number): number | null {
+  return TIER_PRICES[totalSecs] ?? null;
+}
+
+export interface TierStat { total_secs: number; price_php: number | null; sold: number; unsold: number; revenue_php: number }
+
+export async function salesStats(): Promise<{ revenue: number; sold: number; unsold: number; tiers: TierStat[] }> {
+  const db = supabase();
+  const totals = (await db.from(T_VOUCHERS).select("total_secs").limit(5000)).data ?? [];
+  const secs = [...new Set(totals.map((r) => Number(r.total_secs)))].sort((a, b) => a - b);
+  const tiers: TierStat[] = await Promise.all(secs.map(async (t) => {
+    const [{ count: s }, { count: u }] = await Promise.all([
+      db.from(T_VOUCHERS).select("code", { count: "exact", head: true }).eq("total_secs", t).not("bound_mac", "is", null),
+      db.from(T_VOUCHERS).select("code", { count: "exact", head: true }).eq("total_secs", t).is("bound_mac", null),
+    ]);
+    const price = tierPrice(t);
+    const ts = s ?? 0, tu = u ?? 0;
+    return { total_secs: t, price_php: price, sold: ts, unsold: tu, revenue_php: (price ?? 0) * ts };
+  }));
+  tiers.sort((a, b) => a.total_secs - b.total_secs);
+  let revenue = 0, sold = 0, unsold = 0;
+  for (const t of tiers) { revenue += t.revenue_php; sold += t.sold; unsold += t.unsold; }
+  return { revenue, sold, unsold, tiers };
+}
+
+export async function recentSales(limit = 8): Promise<Voucher[]> {
+  const { data, error } = await supabase().from(T_VOUCHERS)
+    .select("code,state,total_secs,used_secs,bound_mac,last_auth,created_at,first_seen")
+    .not("bound_mac", "is", null)
+    .order("first_seen", { ascending: false, nullsFirst: false }).limit(limit);
+  if (error) err(error, "Failed to load sales.");
+  return (data ?? []) as Voucher[];
 }
 
 /* ---------- reads (paginated, column-limited) ---------- */

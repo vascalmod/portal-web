@@ -75,7 +75,14 @@ export default function VoucherDetail() {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-lg">{v.code}</CardTitle>
-          <StateBadge state={v.state} />
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="ghost" onClick={() => {
+              navigator.clipboard?.writeText(v.code).then(
+                () => toast.success("Code copied."),
+                () => toast.error("Copy failed."));
+            }}>Copy</Button>
+            <StateBadge state={v.state} />
+          </div>
         </CardHeader>
         <CardContent className="space-y-4 text-sm">
           <Section title="Voucher">

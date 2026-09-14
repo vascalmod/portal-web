@@ -44,7 +44,7 @@ export default function BatchSlips() {
             <div className="text-xs font-bold tracking-widest text-muted-foreground">WI-FI E-VOUCHER</div>
             <div className="my-2 font-mono text-2xl font-bold tracking-wider">{c}</div>
             <div className="text-sm font-semibold text-primary">
-              {batch.price_php != null ? `${fmtPeso(batch.price_php)} · ` : ""}{tierLabel(batch.total_secs)} · 10 Mbps
+              {batch.price_php != null ? `${fmtPeso(batch.price_php)} · ` : ""}{tierLabel(batch.total_secs)} · Unlimited speed
             </div>
             <ol className="mx-auto mt-2 max-w-[240px] space-y-0.5 text-left text-[11px] text-muted-foreground">
               <li>1. Join the WiFi network on your phone.</li>

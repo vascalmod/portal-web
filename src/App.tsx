@@ -1,5 +1,6 @@
 import { Link, NavLink, Route, BrowserRouter as Router, Routes } from "react-router-dom";
 import { Wifi } from "lucide-react";
+import { Toaster } from "@/components/ui/sonner";
 import Admin from "./pages/Admin";
 import Home from "./pages/Home";
 import Voucher from "./pages/Voucher";
@@ -29,9 +30,10 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/voucher" element={<Voucher />} />
-          <Route path="/admin" element={<Admin />} />
+          <Route path="/admin/*" element={<Admin />} />
           <Route path="*" element={<Home />} />
         </Routes>
+        <Toaster />
       </div>
     </Router>
   );

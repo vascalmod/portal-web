@@ -68,45 +68,6 @@ export const portalPause = (code: string): Promise<PortalAction> =>
 export const portalResume = (code: string): Promise<PortalAction> =>
   postForm("/portal/resume", { code });
 
-/* ---------- admin (/admin/api/*) — live ---------- */
-export type VoucherState = "NEW" | "ACTIVE" | "PAUSED" | "EXPIRED" | "DISABLED";
-export interface AdminStats {
-  revenue_php: number; sold: number; unsold: number;
-  by_tier: Tier[]; by_state: Partial<Record<VoucherState, number>>;
-  liability_secs: number; active_now: number;
-}
-export interface VoucherRow {
-  code: string; state: VoucherState; total_secs: number; used_secs: number;
-  remaining_secs: number; price_php: number | null;
-  bound_mac: string | null; last_ip: string | null;
-  first_seen: string | null; last_auth: string | null;
-}
-export interface AdminEvent {
-  id: number; code: string; mac: string | null; decision: string; reason: string;
-  remaining_secs: number | null; created_at: string | null;
-}
-
-const adminGet = <T,>(path: string, key: string): Promise<T> =>
-  req<T>(`${path}?psk=${encodeURIComponent(key)}`, { headers: { "X-PSK": key } });
-
-export const adminStats = (key: string): Promise<AdminStats> => adminGet("/admin/api/stats", key);
-export const adminVouchers = (key: string, p: { state?: string; q?: string; limit?: number; offset?: number }): Promise<{ total: number; rows: VoucherRow[] }> => {
-  const qs = new URLSearchParams({ state: p.state ?? "", q: p.q ?? "", limit: String(p.limit ?? 25), offset: String(p.offset ?? 0) });
-  return adminGet(`/admin/api/vouchers?${qs.toString()}`, key);
-};
-export const adminEvents = (key: string, limit = 50): Promise<{ rows: AdminEvent[] }> =>
-  adminGet(`/admin/api/events?limit=${limit}`, key);
-export const adminCreate = (key: string, code: string, total_secs: number) =>
-  postForm<{ ok: boolean; code?: string; total_secs?: number; price_php?: number | null; error?: string }>("/admin/api/create", { code, total_secs: String(total_secs) }, key);
-export const adminSetState = (key: string, code: string, state: "NEW" | "DISABLED") =>
-  postForm<{ ok: boolean; state?: string; noop?: boolean; error?: string }>("/admin/api/set_state", { code, state }, key);
-export const adminRelease = (key: string, code: string) =>
-  postForm<{ ok: boolean; noop?: boolean; error?: string }>("/admin/api/release", { code }, key);
-export const adminExtend = (key: string, code: string, add_secs: number) =>
-  postForm<{ ok: boolean; total_secs?: number; state?: string; error?: string }>("/admin/api/extend", { code, add_secs: String(add_secs) }, key);
-export const adminDelete = (key: string, code: string) =>
-  postForm<{ ok: boolean; error?: string }>("/admin/api/delete", { code }, key);
-
 /* ---------- formatting ---------- */
 export function fmtSecs(s: number): string {
   s = Math.max(0, Math.round(s));
